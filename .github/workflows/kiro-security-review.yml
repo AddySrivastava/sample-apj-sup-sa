@@ -1,0 +1,39 @@
+name: Kiro Security Review
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Kiro CLI
+        run: curl -fsSL https://cli.kiro.dev/install | bash
+
+      - name: Run Kiro security review
+        env:
+          KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
+        run: |
+          kiro-cli chat \
+              --agent security-reviewer \
+              --no-interactive \
+              "Perform a comprehensive security review of all files in this repository. Check for hardcoded secrets, injection vulnerabilities, authentication issues, insecure configurations, and dependency risks. Output a markdown report with findings categorized by severity."
+
+      - name: Upload review results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-review-report
+          path: review-report.md
+          retention-days: 30
