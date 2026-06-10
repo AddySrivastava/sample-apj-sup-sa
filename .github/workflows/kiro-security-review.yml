@@ -28,7 +28,7 @@ jobs:
           kiro-cli chat \
               --agent security-reviewer \
               --no-interactive \
-              "Perform a comprehensive security review of all files in this repository. Check for hardcoded secrets, injection vulnerabilities, authentication issues, insecure configurations, and dependency risks. Output a markdown report with findings categorized by severity."
+              "Perform a comprehensive security review of all files in this repository. Check for hardcoded secrets, injection vulnerabilities, authentication issues, insecure configurations, and dependency risks. Output a markdown report to review-report.md with findings categorized by severity. At the end of the report, add a line that says exactly 'RESULT: PASS' if no critical or warning issues were found, or 'RESULT: FAIL' if any critical or warning issues were found."
 
       - name: Upload review results
         if: always()
@@ -37,3 +37,17 @@ jobs:
           name: security-review-report
           path: review-report.md
           retention-days: 30
+
+      - name: Check for security failures
+        run: |
+          if [ ! -f review-report.md ]; then
+            echo "❌ No review report generated — treating as failure"
+            exit 1
+          fi
+          if grep -q "RESULT: FAIL" review-report.md; then
+            echo "❌ Security review found critical or warning issues:"
+            echo ""
+            cat review-report.md
+            exit 1
+          fi
+          echo "✅ Security review passed — no critical or warning issues found"
