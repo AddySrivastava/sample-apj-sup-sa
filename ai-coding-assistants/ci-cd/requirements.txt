@@ -1,0 +1,6 @@
+flask
+flask-cors
+pyyaml
+requests
+boto3
+cryptography
