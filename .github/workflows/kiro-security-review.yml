@@ -27,10 +27,11 @@ jobs:
         env:
           KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
         run: |
+          PROMPT=$(cat .kiro/agents/security-review-prompt.md)
           kiro-cli chat \
               --agent security-reviewer \
               --no-interactive \
-              "Perform a comprehensive security review of all files in this repository. Check for hardcoded secrets, injection vulnerabilities, authentication issues, insecure configurations, and dependency risks. Output a markdown report to review-report.md and a structured JSON findings file to findings.json."
+              "$PROMPT"
 
       - name: Upload review artifacts
         if: always()
