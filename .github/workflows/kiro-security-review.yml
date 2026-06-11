@@ -1,0 +1,127 @@
+name: Kiro Security Review
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Kiro CLI
+        run: curl -fsSL https://cli.kiro.dev/install | bash
+
+      - name: Run Kiro security review
+        env:
+          KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
+        run: |
+          kiro-cli chat \
+              --agent security-reviewer \
+              --no-interactive \
+              "Perform a comprehensive security review of all files in this repository. Check for hardcoded secrets, injection vulnerabilities, authentication issues, insecure configurations, and dependency risks. Output a markdown report to review-report.md and a structured JSON findings file to findings.json."
+
+      - name: Upload review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-review-report
+          path: |
+            review-report.md
+            findings.json
+          retention-days: 30
+
+      - name: Configure AWS credentials
+        if: always()
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Enrich findings and upload to S3
+        if: always()
+        env:
+          S3_BUCKET: ${{ secrets.SECURITY_FINDINGS_BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          # Gather git metadata
+          COMMIT_ID="${{ github.sha }}"
+          SHORT_COMMIT="${COMMIT_ID:0:7}"
+          BRANCH="${{ github.ref_name }}"
+          REPO="${{ github.repository }}"
+          AUTHOR="${{ github.actor }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          RUN_ID="${{ github.run_id }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # If findings.json doesn't exist, create empty array
+          if [ ! -f findings.json ]; then
+            echo "[]" > findings.json
+          fi
+
+          # Enrich each finding with git metadata using jq
+          jq --arg commit_id "$COMMIT_ID" \
+             --arg short_commit "$SHORT_COMMIT" \
+             --arg branch "$BRANCH" \
+             --arg repo "$REPO" \
+             --arg author "$AUTHOR" \
+             --arg date "$DATE" \
+             --arg pr_number "$PR_NUMBER" \
+             --arg pr_url "$PR_URL" \
+             --arg run_id "$RUN_ID" \
+             --arg run_url "$RUN_URL" \
+             '[.[] | . + {
+               commit_id: $commit_id,
+               short_commit: $short_commit,
+               branch: $branch,
+               repository: $repo,
+               author: $author,
+               scan_date: $date,
+               pull_request_number: $pr_number,
+               pull_request_url: $pr_url,
+               run_id: $run_id,
+               run_url: $run_url
+             }]' findings.json > enriched-findings.json
+
+          # Determine S3 path: partition by date for efficient QuickSight queries
+          YEAR=$(date -u +"%Y")
+          MONTH=$(date -u +"%m")
+          DAY=$(date -u +"%d")
+          S3_KEY="security-findings/year=${YEAR}/month=${MONTH}/day=${DAY}/${REPO//\//-}_${SHORT_COMMIT}_${RUN_ID}.json"
+
+          # Upload to S3 as newline-delimited JSON (for Athena/QuickSight compatibility)
+          jq -c '.[]' enriched-findings.json > findings-ndjson.json
+
+          if [ -s findings-ndjson.json ]; then
+            aws s3 cp findings-ndjson.json "s3://${S3_BUCKET}/${S3_KEY}" \
+              --content-type "application/json"
+            echo "✅ Uploaded $(wc -l < findings-ndjson.json) findings to s3://${S3_BUCKET}/${S3_KEY}"
+          else
+            echo "ℹ️ No findings to upload"
+          fi
+
+      - name: Check for security failures
+        run: |
+          if [ ! -f review-report.md ]; then
+            echo "❌ No review report generated — treating as failure"
+            exit 1
+          fi
+          if grep -q "RESULT: FAIL" review-report.md; then
+            echo "❌ Security review found critical or warning issues:"
+            echo ""
+            cat review-report.md
+            exit 1
+          fi
+          echo "✅ Security review passed — no critical or warning issues found"
