@@ -26,7 +26,7 @@ PARTITIONED BY (
     day STRING
 )
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
-LOCATION 's3://YOUR_BUCKET_NAME/security-findings/'
+LOCATION 's3://kiro-security-findings-798836978083/security-findings/'
 TBLPROPERTIES ('has_encrypted_data'='false');
 
 -- After creating the table, load partitions:
