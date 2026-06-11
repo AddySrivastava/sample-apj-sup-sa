@@ -23,15 +23,48 @@ jobs:
       - name: Install Kiro CLI
         run: curl -fsSL https://cli.kiro.dev/install | bash
 
+      - name: Get changed files
+        id: changed-files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Get files changed in the PR
+            git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD > changed_files.txt
+          else
+            # Push to main: get files changed in the latest commit
+            git diff --name-only --diff-filter=ACMR HEAD~1 HEAD > changed_files.txt
+          fi
+          echo "Changed files:"
+          cat changed_files.txt
+
+      - name: Generate diff for review
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff origin/${{ github.base_ref }}...HEAD -- $(cat changed_files.txt) > pr_diff.patch
+          else
+            git diff HEAD~1 HEAD -- $(cat changed_files.txt) > pr_diff.patch
+          fi
+
       - name: Run Kiro security review
         env:
           KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
         run: |
           PROMPT=$(cat .kiro/agents/security-review-prompt.md)
+          FILES=$(cat changed_files.txt | tr '\n' ', ')
+          DIFF=$(cat pr_diff.patch)
+
           kiro-cli chat \
               --agent security-reviewer \
               --no-interactive \
-              "$PROMPT"
+              "Review ONLY the following changed files for security issues. Do NOT scan the entire repository.
+
+          Changed files: ${FILES}
+
+          Here is the diff:
+          \`\`\`
+          ${DIFF}
+          \`\`\`
+
+          ${PROMPT}"
 
       - name: Upload review artifacts
         if: always()

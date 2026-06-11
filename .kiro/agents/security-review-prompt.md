@@ -1,6 +1,8 @@
 # Security Review Prompt
 
-Perform a security review of all files in this repository. Scan for the following specific vulnerability categories:
+Perform a security review of ONLY the changed files provided below. Do NOT scan other files in the repository. Focus exclusively on the diff content and the files listed.
+
+Scan for the following specific vulnerability categories:
 
 ## Critical Issues (🔴 must block PR)
 
