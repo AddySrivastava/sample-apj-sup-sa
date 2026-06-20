@@ -188,5 +188,6 @@ python common/cleanup.py --endpoint-name <ep> --region <region>
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The model and third-party dependencies (vLLM, AWS DLCs,
-transformers) are governed by their own licenses.
+MIT-0 (MIT No Attribution) — see [LICENSE](LICENSE), consistent with the repository.
+The model and third-party dependencies (vLLM, AWS DLCs, transformers) are governed by
+their own licenses.
