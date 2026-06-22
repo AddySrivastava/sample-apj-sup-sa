@@ -14,6 +14,17 @@ cd "$(dirname "$0")/.."   # repo root = build context
 REGION="${1:-ap-south-1}"
 REPO_NAME="${2:-whisper-vllm}"
 TAG="${3:-latest}"
+
+# Validate inputs: must be non-empty and contain only safe characters.
+for var in REGION REPO_NAME TAG; do
+  val="${!var}"
+  if [[ -z "${val}" ]]; then
+    echo "ERROR: ${var} must not be empty." >&2; exit 1
+  fi
+  if [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+    echo "ERROR: ${var} contains invalid characters: ${val}" >&2; exit 1
+  fi
+done
 # CUDA 12.4 image -- compatible with SageMaker g5 host driver. See vllm/Dockerfile.
 BASE_IMAGE="vllm/vllm-openai:v0.8.5.post1"
 

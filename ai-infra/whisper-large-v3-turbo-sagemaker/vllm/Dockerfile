@@ -24,5 +24,10 @@ COPY model_artifacts/snapshot/ /opt/ml/model/snapshot/
 COPY vllm/proxy.py /opt/ml/proxy.py
 COPY vllm/launch.py /opt/ml/launch.py
 
+# Run as non-root for container security hardening.
+RUN useradd -m -s /bin/bash model && \
+    chown -R model:model /opt/ml
+USER model
+
 # Use python3 (guaranteed present) as the entrypoint to avoid shell exec issues.
 ENTRYPOINT ["python3", "/opt/ml/launch.py"]

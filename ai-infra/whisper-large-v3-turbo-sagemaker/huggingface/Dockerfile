@@ -21,6 +21,11 @@ COPY model_artifacts/snapshot/ /opt/ml/model/
 COPY huggingface/inference.py /opt/ml/model/code/inference.py
 
 # Tell the SageMaker Hugging Face toolkit where the handler lives.
+# Run as non-root for container security hardening.
+RUN useradd -m -s /bin/bash model && \
+    chown -R model:model /opt/ml
+USER model
+
 ENV SAGEMAKER_PROGRAM=inference.py \
     SAGEMAKER_SUBMIT_DIRECTORY=/opt/ml/model/code \
     HF_TASK=automatic-speech-recognition \

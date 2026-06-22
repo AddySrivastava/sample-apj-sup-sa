@@ -21,6 +21,17 @@ REGION="${1:-ap-south-1}"
 REPO_NAME="${2:-whisper-hf}"
 TAG="${3:-latest}"
 
+# Validate inputs: must be non-empty and contain only safe characters.
+for var in REGION REPO_NAME TAG; do
+  val="${!var}"
+  if [[ -z "${val}" ]]; then
+    echo "ERROR: ${var} must not be empty." >&2; exit 1
+  fi
+  if [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+    echo "ERROR: ${var} contains invalid characters: ${val}" >&2; exit 1
+  fi
+done
+
 # AWS account that hosts the Hugging Face DLC base images (same in most regions).
 DLC_ACCOUNT="763104351884"
 BASE_IMAGE="${DLC_ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/huggingface-pytorch-inference:2.1.0-transformers4.37.0-gpu-py310-cu118-ubuntu20.04"

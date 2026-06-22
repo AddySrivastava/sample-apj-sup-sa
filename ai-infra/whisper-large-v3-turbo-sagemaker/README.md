@@ -59,7 +59,17 @@ Full numbers: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 ## Prerequisites
 
 - AWS account with SageMaker, ECR, S3, and IAM pass-role access; credentials configured.
-- A **SageMaker execution role ARN** (e.g. `AmazonSageMakerFullAccess` + S3 access).
+- A **SageMaker execution role ARN** with the following permissions:
+  - `sagemaker:CreateModel`, `sagemaker:CreateEndpointConfig`, `sagemaker:CreateEndpoint`,
+    `sagemaker:InvokeEndpoint`, `sagemaker:DeleteModel`, `sagemaker:DeleteEndpoint`,
+    `sagemaker:DeleteEndpointConfig`
+  - `ecr:GetAuthorizationToken`, `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`
+  - `s3:GetObject`, `s3:PutObject` on your SageMaker bucket
+  - `iam:PassRole` on the execution role itself
+  - `application-autoscaling:*` (only if using `common/autoscale.py`)
+
+  `AmazonSageMakerFullAccess` works for quick experimentation but is overly broad
+  for production — scope down to the actions above.
 - **GPU endpoint quota** for your instance type (e.g. `ml.g5.xlarge for endpoint usage`).
 - Python 3.10+ and the local deps:
   ```bash
@@ -168,6 +178,13 @@ python common/cleanup.py --endpoint-name <ep> --region <region>
 ---
 
 ## Notes & lessons learned
+
+- **Turn-based vs real-time streaming.** This sample uses the standard SageMaker
+  request-response contract (`/invocations`) — ideal for VAD-segmented utterances where
+  you send a complete audio chunk and receive the transcript back. For **continuous
+  live transcription** (audio streaming in and tokens streaming out simultaneously),
+  see [SageMaker bidirectional streaming with vLLM](https://aws.amazon.com/blogs/machine-learning/build-real-time-voice-applications-with-amazon-sagemaker-ai-and-vllm/)
+  which uses WebSocket-based `/invocations-bidirectional-stream` and the vLLM Realtime API.
 
 - **No Hugging Face download at boot.** Weights are baked into the artifact/image, so
   autoscaled instances start fast and don't depend on the Hub at runtime.

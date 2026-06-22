@@ -26,7 +26,7 @@ try:
 except Exception:
     print("[launch] installing audio deps...", flush=True)
     subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir",
-                    "librosa", "soundfile"], check=False)
+                    "librosa==0.10.2", "soundfile==0.12.1"], check=False)
 
 # Start the SageMaker /ping + /invocations proxy (port 8080).
 print("[launch] starting proxy on :8080", flush=True)
