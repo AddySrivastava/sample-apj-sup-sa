@@ -120,4 +120,4 @@ opening a pull request.
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT-0 License](LICENSE).

@@ -42,3 +42,11 @@ Browser Mic (16kHz) → WebSocket → AgentCore Runtime
                                     ├─ Restaurant Tool Calls
                                     └─ Deepgram TTS (Aura) → WebSocket → Browser Speakers (24kHz)
 ```
+
+## Image Credits
+
+Menu item photos are sourced from [Unsplash](https://unsplash.com) and hotlinked
+via the Unsplash CDN for demo purposes. They are used under the
+[Unsplash License](https://unsplash.com/license), which permits free use without
+attribution. For a production deployment, host your own licensed images rather
+than hotlinking. See `services/backend/app/store.py` for the image URLs.

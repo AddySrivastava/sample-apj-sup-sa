@@ -12,7 +12,7 @@ Notebook content lives in code so changes show up in git diffs and the
 
 The notebook structure is identical across models; the per-model bits are
 the title prose, weight footprint, instance experiments and which sample-data
-file feeds the load test (travel for text models, vision for Qwen3-VL).
+file feeds the load test.
 """
 from __future__ import annotations
 
@@ -55,6 +55,12 @@ _EXPERIMENTS_FULL: list[tuple[str, str, str]] = [
     ("exp_7",  "Experiment 7 — p4de.24xlarge (8× A100 80GB / Ampere)", "standard"),
 ]
 
+# MedGemma additionally gets a p6-B200 experiment (exp_8): all 8 Blackwell
+# GPUs, one replica per GPU (TP=1, DP=8), with a persistent spot wait.
+_EXPERIMENTS_MEDGEMMA: list[tuple[str, str, str]] = _EXPERIMENTS_FULL + [
+    ("exp_8", "Experiment 8 — p6-b200.48xlarge (8× B200 / Blackwell) — TP=1 DP=8, persistent spot wait", "standard"),
+]
+
 # Llama-4-Scout's 218 GiB BF16 weights only fit on p4d/p4de.
 _EXPERIMENTS_LLAMA4_SCOUT: list[tuple[str, str, str]] = [
     ("exp_6",  "Experiment 6 — p4d.24xlarge (8× A100 40GB / Ampere) — TP=8, kv-cache fp8", "standard"),
@@ -80,16 +86,6 @@ _EXPERIMENTS_QWEN3_CODER_NEXT: list[tuple[str, str, str]] = [
     ("exp_4", "Experiment 4 — p4de.24xlarge (4× A100 80GB) — TP=4", "standard"),
 ]
 
-# Qwen3-VL-30B-A3B: vision-language MoE.
-_EXPERIMENTS_QWEN3_VL: list[tuple[str, str, str]] = [
-    ("exp_1", "Experiment 1 — g6e.2xlarge (1× L40S) — FP8 quant, image=4", "standard"),
-    ("exp_2", "Experiment 2 — g6e.12xlarge (4× L40S) — BF16 TP=4, image=8", "standard"),
-    ("exp_3", "Experiment 3 — g7e.2xlarge (1× Blackwell) — BF16, image=4", "standard"),
-    ("exp_4", "Experiment 4 — g7e.12xlarge (4× Blackwell) — BF16 TP=4, image=8", "standard"),
-    ("exp_5", "Experiment 5 — p4d.24xlarge (8× A100 40GB) — BF16 TP=8, image=8", "standard"),
-]
-
-
 MODEL_CONFIGS: dict[str, ModelNotebookConfig] = {
     "medgemma_27b": ModelNotebookConfig(
         package="medgemma_27b",
@@ -103,7 +99,7 @@ MODEL_CONFIGS: dict[str, ModelNotebookConfig] = {
         weight_note="MedGemma-27B (BF16) weights are ~55 GiB. g6.12xl is limited to 1 replica via TP=4; g6e.12xl fits 2 replicas (each 2× L40S = 96 GiB).",
         gated=True,
         architecture_note="MedGemma-27B is built on the Gemma 3 architecture. vLLM's Neuron backend does not currently support Gemma 3, so inf2/trn1 are out of scope.",
-        experiments=list(_EXPERIMENTS_FULL),
+        experiments=list(_EXPERIMENTS_MEDGEMMA),
     ),
     "qwen3_8b": ModelNotebookConfig(
         package="qwen3_8b",
@@ -202,20 +198,6 @@ MODEL_CONFIGS: dict[str, ModelNotebookConfig] = {
         gated=False,
         architecture_note="80B/3B-A MoE Apache-2.0 coding model (qwen3_next hybrid arch, 512 experts top-10 + 1 shared, 262K native context). Travel-as-coding task: SYSTEM_PROMPT asks for Python code that parses the booking JSON. Does NOT emit `<think>`; recommended sampling temp=1.0, top_p=0.95, top_k=40.",
         experiments=list(_EXPERIMENTS_QWEN3_CODER_NEXT),
-    ),
-    "qwen3_vl_30b_a3b": ModelNotebookConfig(
-        package="qwen3_vl_30b_a3b",
-        var_name="QWEN3_VL_30B_A3B",
-        nb_filename="qwen3-vl-30b-a3b-vllm-ec2-benchmark.ipynb",
-        display_name="Qwen3-VL 30B-A3B Instruct",
-        hf_repo="Qwen/Qwen3-VL-30B-A3B-Instruct",
-        domain="vision",
-        sample_data_file="01-charts.jsonl",
-        weight_gib=62.0,
-        weight_note="Qwen3-VL-30B-A3B is 30B/3B-A MoE + ViT (DeepStack, Interleaved-MRoPE) with image+text → text. ~62 GiB BF16. Vision sample data is in `sample-data/vision/` (10-30 public image URLs). Always TP-only — pipeline parallel breaks VLMs in vLLM.",
-        gated=False,
-        architecture_note="VLM MoE Apache-2.0. May need `transformers >= 4.57` for Qwen3VLMoeForConditionalGeneration. Image-token KV explosion is capped via `--limit-mm-per-prompt image=N` and `--max-num-seqs N`.",
-        experiments=list(_EXPERIMENTS_QWEN3_VL),
     ),
 }
 
@@ -320,13 +302,19 @@ def cells_preamble(c: ModelNotebookConfig) -> list[dict]:
                 DeploymentRunner,
                 ExperimentConfig,
                 catalog_meta,
+                scrape_vllm_metrics,
                 upsert_hf_token,
+                verify_tier,
             )
             from vllm_ec2_bench.cleanup import (
                 terminate_all_tagged_instances,
                 cleanup_tagged_security_groups,
             )
-            from vllm_ec2_bench.endpoint import VLLMEndpoint
+            from vllm_ec2_bench.endpoint import (
+                UniquePayloadEndpoint,
+                VLLMEndpoint,
+                make_http_client,
+            )
             from models.{c.package} import (
                 {c.var_name},
                 EXPERIMENTS,
@@ -466,9 +454,35 @@ def cells_preamble(c: ModelNotebookConfig) -> list[dict]:
             BENCH_TOTAL_REQUESTS_PER_TIER = N_BENCHMARK_SAMPLES
             MAX_NEW_TOKENS = 512
             CONCURRENCY_TIERS = [1, 10, 30, 50, 100]
+
+            # Client-side connection ceiling. The OpenAI SDK defaults to 1,000,
+            # which silently caps any tier above that and flattens the curve for
+            # a reason that has nothing to do with the GPU.
+            HTTP_MAX_CONNECTIONS = 4096
+
+            # Verification thresholds applied to every tier (see
+            # vllm_ec2_bench.verify). MAX_PREEMPTIONS=0 is the strict setting
+            # appropriate when you intend to quote the result: a tier where the
+            # engine evicted running sequences is not reproducible.
+            MIN_COMPLETENESS = 0.98
+            MAX_DIVERGENCE = 0.05
+            MAX_PREEMPTIONS = 0
+
+            # UniquePayloadEndpoint consumes one input per request and refuses to
+            # recycle, so the pool must cover the largest tier.
+            assert N_BENCHMARK_SAMPLES >= BENCH_TOTAL_REQUESTS_PER_TIER, (
+                "input pool smaller than a tier's request budget"
+            )
+            assert HTTP_MAX_CONNECTIONS >= max(CONCURRENCY_TIERS), (
+                "HTTP_MAX_CONNECTIONS below the top concurrency tier"
+            )
+
             print(f"Per-tier request budget: {BENCH_TOTAL_REQUESTS_PER_TIER}")
             print(f"Concurrency tiers:       {CONCURRENCY_TIERS}")
             print(f"Warmup requests:         {N_WARMUP_SAMPLES} at c=1 (discarded)")
+            print(f"Client conn ceiling:     {HTTP_MAX_CONNECTIONS}")
+            print(f"Gates: completeness>={MIN_COMPLETENESS:.0%} "
+                  f"divergence<={MAX_DIVERGENCE:.0%} preemptions<={MAX_PREEMPTIONS}")
             """)),
         md("### 0.7 Shared helper to run one experiment end-to-end"),
         code(dedent(f"""\
@@ -504,10 +518,26 @@ def cells_preamble(c: ModelNotebookConfig) -> list[dict]:
                 )
                 state = runner.launch()
 
-                endpoint = VLLMEndpoint(
+                # UniquePayloadEndpoint guarantees every request carries a
+                # distinct input. Without it, LLMeter's constant-seeded shuffle
+                # makes all clients replay the same handful of prompts, and
+                # prefix caching turns those repeats into near-free cache hits
+                # that inflate throughput. make_http_client lifts the OpenAI
+                # SDK's 1,000-connection cap so tiers above c=1000 measure the
+                # server rather than the client's connection pool.
+                endpoint = UniquePayloadEndpoint(
                     base_url=state.base_url,
                     api_key=state.api_key,
                     model_id=cfg.model_spec.served_model_name,
+                    inputs=INPUTS,
+                    system_prompt=SYSTEM_PROMPT,
+                    max_tokens=MAX_NEW_TOKENS,
+                    http_client=make_http_client(HTTP_MAX_CONNECTIONS),
+                )
+                _pool = endpoint._client._client._transport._pool
+                assert _pool._max_connections >= max(concurrency_tiers), (
+                    f"client pool {{_pool._max_connections}} < c="
+                    f"{{max(concurrency_tiers)}}; the sweep would be client-bound"
                 )
 
                 # Smoke test
@@ -520,6 +550,9 @@ def cells_preamble(c: ModelNotebookConfig) -> list[dict]:
                       f"output_tokens={{smoke.num_tokens_output}} "
                       f"latency_s={{smoke.time_to_last_token:.2f}}")
 
+                # These payloads are placeholders: prepare_payload() replaces
+                # the message body with a fresh input on every request. Only the
+                # LIST LENGTH matters, since it sets LLMeter's request budget.
                 payloads = [
                     VLLMEndpoint.create_payload(SYSTEM_PROMPT, x, max_tokens=MAX_NEW_TOKENS)
                     for x in INPUTS[:BENCH_TOTAL_REQUESTS_PER_TIER]
@@ -548,7 +581,69 @@ def cells_preamble(c: ModelNotebookConfig) -> list[dict]:
                     min_requests_per_run=BENCH_TOTAL_REQUESTS_PER_TIER,
                     min_requests_per_client=max(1, BENCH_TOTAL_REQUESTS_PER_TIER // max(concurrency_tiers)),
                 )
+                # Time ONLY the load test — this is the benchmark run window.
+                # Capacity acquisition (state.capacity_wait_s) and vLLM warmup
+                # (state.vllm_ready_wait_s) already happened during
+                # runner.launch() above and are deliberately excluded here, so
+                # a long spot wait for a scarce GPU never inflates the measured
+                # benchmark duration.
+                import time as _time
+                # Bracket the run with /metrics scrapes: the counters are
+                # cumulative for the life of the server, so only deltas are
+                # meaningful. This is the only way to see prefix-cache behaviour
+                # and preemptions — vLLM leaves usage.cached_tokens at 0 even
+                # with --enable-prefix-caching enabled.
+                metrics_before = scrape_vllm_metrics(state.base_url, state.api_key)
+                endpoint.reset_pool()
+                _bench_start = _time.time()
                 results = await load_test.run()
+                benchmark_wall_s = _time.time() - _bench_start
+                metrics_after = scrape_vllm_metrics(state.base_url, state.api_key)
+
+                print(f"[{{exp_id}}] launch overhead (excluded): "
+                      f"spot_wait={{state.capacity_wait_s or 0:.0f}}s "
+                      f"vllm_warmup={{state.vllm_ready_wait_s or 0:.0f}}s")
+                print(f"[{{exp_id}}] benchmark run (measured): {{benchmark_wall_s:.0f}}s")
+                print(f"[{{exp_id}}] unique inputs served: {{endpoint.served:,}}")
+
+                # Verify each tier. A tier that fails a gate is still recorded —
+                # you want to see it and why — but it is flagged so it never
+                # silently becomes a quoted number.
+                verdicts = {{}}
+                _results_dict = getattr(results, "results", None) or {{}}
+                for _clients, _result in _results_dict.items():
+                    _stats = getattr(_result, "stats", None)
+                    if _stats is None:
+                        continue
+                    _in_tok = _stats.get("total_input_tokens") or 0
+                    _out_tok = _stats.get("total_output_tokens") or 0
+                    _tpm = (
+                        (_stats.get("average_input_tokens_per_minute") or 0)
+                        + (_stats.get("average_output_tokens_per_minute") or 0)
+                    )
+                    _v = verify_tier(
+                        concurrency=int(_clients),
+                        output_dir=OUTPUT_BASE / exp_id / "load_test",
+                        n_expected=_stats.get("total_requests") or 0,
+                        stats_tokens_per_min=_tpm,
+                        total_tokens=_in_tok + _out_tok,
+                        wall_clock_s=_stats.get("total_test_time") or 0.0,
+                        metrics_before=metrics_before,
+                        metrics_after=metrics_after,
+                        min_completeness=MIN_COMPLETENESS,
+                        max_divergence=MAX_DIVERGENCE,
+                        max_preemptions=MAX_PREEMPTIONS,
+                    )
+                    verdicts[int(_clients)] = _v
+                    _flag = "VALID" if _v.valid else "INVALID"
+                    print(f"[{{exp_id}}] c={{_clients}}: {{_flag}}"
+                          + (f" — {{'; '.join(_v.reasons)}}" if _v.reasons else ""))
+                if verdicts:
+                    _hit = [v.prefix_cache_hit_rate for v in verdicts.values()
+                            if v.prefix_cache_hit_rate is not None]
+                    if _hit:
+                        print(f"[{{exp_id}}] prefix-cache hit rate: {{max(_hit):.1%}} "
+                              "(high values mean payload reuse, not a fast engine)")
 
                 EXPERIMENTS_STATE[exp_id] = {{
                     "spec": cfg,
@@ -558,6 +653,13 @@ def cells_preamble(c: ModelNotebookConfig) -> list[dict]:
                     "load_test": load_test,
                     "results": results,
                     "concurrency_tiers": concurrency_tiers,
+                    "benchmark_wall_s": benchmark_wall_s,
+                    "capacity_wait_s": state.capacity_wait_s,
+                    "vllm_ready_wait_s": state.vllm_ready_wait_s,
+                    "verdicts": {{k: v.as_dict() for k, v in verdicts.items()}},
+                    "metrics_before": metrics_before,
+                    "metrics_after": metrics_after,
+                    "unique_inputs_served": endpoint.served,
                     "completed_at": datetime.utcnow().isoformat(),
                 }}
                 return EXPERIMENTS_STATE[exp_id]
@@ -641,8 +743,31 @@ def cells_analysis() -> list[dict]:
                     actual_hourly = od_price
                     price_source = "OD"
                     if capacity_mode == "spot":
-                        actual_hourly = CATALOG.estimated_spot(dep.instance_type, dep.region) or od_price
-                        price_source = "spot (estimated, 0.7×OD)*"
+                        # Prefer the LIVE spot price. The 0.7×OD heuristic can be
+                        # wildly wrong for scarce accelerators — on p6-b200 it
+                        # reads $79.75/hr against an actual ~$40/hr, which
+                        # doubles every $/token figure derived from it. Fall back
+                        # to the heuristic only if the API call fails, and label
+                        # which one was used so the table never hides the basis.
+                        live = CATALOG.live_spot(dep.instance_type, dep.region)
+                        if live:
+                            actual_hourly = live
+                            price_source = "spot (live)"
+                        else:
+                            actual_hourly = CATALOG.estimated_spot(dep.instance_type, dep.region) or od_price
+                            price_source = "spot (estimated, 0.7×OD)*"
+
+                    # Launch overhead (capacity acquisition + vLLM warmup) is
+                    # tracked on the deployment state and is EXCLUDED from the
+                    # throughput/cost figures below: LLMeter measures tok/min
+                    # from the first request, after the endpoint is ready. For
+                    # scarce GPUs (p6-B200) the spot wait can be many minutes;
+                    # surfacing it here keeps it visible without contaminating
+                    # the per-token economics.
+                    dep_state = entry.get("state")
+                    cap_wait = getattr(dep_state, "capacity_wait_s", None)
+                    ready_wait = getattr(dep_state, "vllm_ready_wait_s", None)
+                    bench_wall = entry.get("benchmark_wall_s")
 
                     row = {
                         "Experiment": exp_id,
@@ -656,6 +781,9 @@ def cells_analysis() -> list[dict]:
                         "$/hr": round(actual_hourly, 4) if actual_hourly else None,
                         "$/hr source": price_source,
                         "Capacity": capacity_mode,
+                        "Spot wait (s)": round(cap_wait, 1) if cap_wait is not None else None,
+                        "vLLM warmup (s)": round(ready_wait, 1) if ready_wait is not None else None,
+                        "Benchmark run (s)": round(bench_wall, 1) if bench_wall is not None else None,
                     }
                     per_tier = _get_per_tier_stats(entry)
                     for tier in all_tiers_sorted:

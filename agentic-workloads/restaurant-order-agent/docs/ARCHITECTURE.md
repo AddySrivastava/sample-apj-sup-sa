@@ -94,7 +94,7 @@ Customer: "I want to order"
 Agent: "What's your phone number?"
     │
     ▼
-Agent calls: request_otp("+919876543210") → SMS sent
+Agent calls: request_otp("+14155552671") → SMS sent
     │
     ▼
 Customer: "The code is 123456"

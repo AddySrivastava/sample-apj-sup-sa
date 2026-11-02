@@ -5,17 +5,16 @@ Maintains per-session message history so Claude remembers the full conversation.
 
 import json
 import logging
-import os
 import uuid
 from typing import Optional
 
 import boto3
 
-from .config import AWS_REGION
+from .config import AWS_REGION, CHAT_MODEL_ID, DEMO_PHONE_NUMBER
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = os.getenv("CHAT_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
+MODEL_ID = CHAT_MODEL_ID
 
 SYSTEM_PROMPT = """You are a friendly restaurant voice assistant for Tasty Bites food delivery.
 You help customers browse the menu, add items to their cart, place orders, and track deliveries.
@@ -39,12 +38,12 @@ RULES:
 - Be helpful and guide them through the ordering process.
 - NEVER use markdown formatting (no **, no *, no #, no bullet points). Responses are spoken aloud.
 - Keep numbers as digits in text (401, not four hundred and one). They will be spoken correctly by TTS.
-- For phone numbers, speak each digit separately: "nine nine one zero four seven three six four five" not "9 billion".
+- For phone numbers, speak each digit separately, not as one large number.
 - For prices, say "rupees three forty nine" not "₹349".
 - For OTP codes, speak each digit: "one nine nine zero two seven" not "199027"."""
 
 TOOLS = [
-    {"name": "request_otp", "description": "Send OTP verification code to a phone number via SMS", "inputSchema": {"json": {"type": "object", "properties": {"phone_number": {"type": "string", "description": "Phone in E.164 format e.g. +919876543210"}}, "required": ["phone_number"]}}},
+    {"name": "request_otp", "description": "Send OTP verification code to a phone number via SMS", "inputSchema": {"json": {"type": "object", "properties": {"phone_number": {"type": "string", "description": "Phone in E.164 format e.g. +14155552671"}}, "required": ["phone_number"]}}},
     {"name": "verify_otp", "description": "Verify the OTP code the customer provides", "inputSchema": {"json": {"type": "object", "properties": {"phone_number": {"type": "string", "description": "Phone number"}, "otp_code": {"type": "string", "description": "6-digit OTP code"}}, "required": ["phone_number", "otp_code"]}}},
     {"name": "list_menu", "description": "Get the restaurant menu", "inputSchema": {"json": {"type": "object", "properties": {"dietary_flag": {"type": "string", "description": "Filter: veg, vegan, or non-veg"}}}}},
     {"name": "get_menu_item", "description": "Get menu item details", "inputSchema": {"json": {"type": "object", "properties": {"item_id": {"type": "integer", "description": "Menu item ID"}}, "required": ["item_id"]}}},
@@ -74,7 +73,7 @@ async def execute_tool(tool_name: str, args: dict) -> dict:
     from .store import get_menu, get_menu_item, get_cart, add_to_cart, place_order, get_current_order, get_order, get_profile
     from .auth import send_otp, verify_otp
 
-    phone = "+919876543210"
+    phone = DEMO_PHONE_NUMBER
 
     try:
         if tool_name == "request_otp":

@@ -18,7 +18,7 @@ MODELS_DIR = REPO / "models"
 # (package, nb_filename, hf_repo, expected_experiment_count)
 _MODELS: list[tuple[str, str, str, int]] = [
     ("medgemma_27b",          "medgemma-27b-vllm-ec2-benchmark.ipynb",
-     "google/medgemma-27b-text-it", 7),
+     "google/medgemma-27b-text-it", 8),
     ("qwen3_8b",              "qwen3-8b-vllm-ec2-benchmark.ipynb",
      "Qwen/Qwen3-8B", 7),
     ("mistral_small_3_2_24b", "mistral-small-3-2-24b-vllm-ec2-benchmark.ipynb",
@@ -34,8 +34,6 @@ _MODELS: list[tuple[str, str, str, int]] = [
      "openai/gpt-oss-20b", 6),
     ("qwen3_coder_next",      "qwen3-coder-next-vllm-ec2-benchmark.ipynb",
      "Qwen/Qwen3-Coder-Next", 4),
-    ("qwen3_vl_30b_a3b",      "qwen3-vl-30b-a3b-vllm-ec2-benchmark.ipynb",
-     "Qwen/Qwen3-VL-30B-A3B-Instruct", 5),
 ]
 
 

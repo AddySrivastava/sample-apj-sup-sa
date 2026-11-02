@@ -50,6 +50,9 @@ logger = logging.getLogger(__name__)
 MEMORY_ID = os.environ.get("AGENTCORE_MEMORY_ID", "")
 AWS_REGION = os.environ.get("AWS_REGION", "us-west-2")
 
+# Bedrock model ID (cross-region inference profile). Override via env if needed.
+LLM_MODEL_ID = os.environ.get("LLM_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+
 if not MEMORY_ID:
     logger.warning("AGENTCORE_MEMORY_ID not set — memory features will be disabled")
 
@@ -392,7 +395,7 @@ async def handle_websocket(websocket, context):
     bedrock_client = AsyncAnthropicBedrock(aws_region=AWS_REGION)
     llm = AnthropicLLMService(
         api_key="bedrock",  # not used when client is provided
-        model="anthropic.claude-sonnet-4-20250514",
+        model=LLM_MODEL_ID,
         client=bedrock_client,
     )
 
@@ -528,7 +531,7 @@ async def handle_invocation(payload: dict) -> dict:
     max_turns = 5
     for _ in range(max_turns):
         response = bedrock.messages.create(
-            model="us.anthropic.claude-sonnet-4-20250514-v1:0",
+            model=LLM_MODEL_ID,
             max_tokens=1024,
             system=SYSTEM_PROMPT,
             messages=messages,

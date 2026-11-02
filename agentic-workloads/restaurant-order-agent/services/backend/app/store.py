@@ -7,6 +7,8 @@ For hackathon demo — production would use DynamoDB.
 import time
 from typing import Optional
 
+from .config import DEMO_PHONE_NUMBER
+
 # Menu data with images (using Unsplash for free food images)
 MENU = [
     # Indian
@@ -67,8 +69,8 @@ _order_counter = 1000
 
 # Profiles: {phone: {name, address, dietary_preference}}
 _profiles: dict[str, dict] = {
-    "+919876543210": {
-        "phone_number": "+919876543210",
+    DEMO_PHONE_NUMBER: {
+        "phone_number": DEMO_PHONE_NUMBER,
         "name": "Demo User",
         "address": "123 Example Street, Demo City 000000",
         "dietary_preference": "non-veg",

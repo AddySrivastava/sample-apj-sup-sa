@@ -15,6 +15,14 @@ JWT_SECRET = os.getenv("JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
+# Demo customer phone number (E.164). Used to seed the demo profile and as the
+# default identity in single-user demo mode. Override in your .env to test with
+# your own number.
+DEMO_PHONE_NUMBER = os.getenv("DEMO_PHONE_NUMBER", "+14155552671")
+
+# Bedrock model ID for the chat agent (cross-region inference profile).
+CHAT_MODEL_ID = os.getenv("CHAT_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+
 # Comma-separated list of allowed CORS origins. Defaults to local dev ports.
 CORS_ALLOWED_ORIGINS = [
     o.strip()

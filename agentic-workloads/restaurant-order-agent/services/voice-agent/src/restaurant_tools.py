@@ -27,7 +27,7 @@ RESTAURANT_TOOLS = [
             "properties": {
                 "phone_number": {
                     "type": "string",
-                    "description": "Customer phone number in E.164 format (e.g., +919876543210)"
+                    "description": "Customer phone number in E.164 format (e.g., +14155552671)"
                 }
             },
             "required": ["phone_number"]

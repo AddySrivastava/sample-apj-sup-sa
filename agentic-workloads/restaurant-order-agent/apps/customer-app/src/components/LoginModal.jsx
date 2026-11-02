@@ -71,7 +71,7 @@ export default function LoginModal({ onClose, onSuccess }) {
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="+919876543210"
+                placeholder="+14155552671"
                 className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none"
                 required
               />

@@ -26,6 +26,9 @@ build/
 **/lambda-voice-token/package/
 **/lambda-voice-token/function.zip
 
+# AgentCore CLI-generated runtime config (contains account ID, region, ARNs)
+**/.bedrock_agentcore.yaml
+
 # IDE / editor
 .vscode/
 .idea/
